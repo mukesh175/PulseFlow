@@ -1,0 +1,410 @@
+// PulseFlow — Prisma schema (Neon PostgreSQL)
+//
+// PulseFlow syncs its own copy of Shopify orders rather than reading another
+// app's database, so it is independently installable. The Store/Order/
+// OrderLineItem/WebhookEvent shape is deliberately the same as StorePulse's:
+// the mirror is a solved problem and there is no reason to diverge.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum BillingPlan {
+  FREE
+  STARTER
+  GROWTH
+  PRO
+}
+
+enum WorkflowStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  ARCHIVED
+}
+
+enum EnrollmentState {
+  /// Waiting for nextRunAt to arrive. The scheduler's only target state.
+  WAITING
+  /// Claimed by a scheduler run and being executed right now.
+  RUNNING
+  COMPLETED
+  /// A condition step evaluated false and ended the journey early.
+  EXITED
+  /// Merchant cancelled, or the workflow was archived under it.
+  CANCELLED
+  FAILED
+}
+
+enum StepRunStatus {
+  PENDING
+  SUCCEEDED
+  /// A condition returned false: not an error, but the journey stops.
+  SKIPPED
+  FAILED
+}
+
+enum MessageChannel {
+  EMAIL
+}
+
+enum MessageStatus {
+  QUEUED
+  SENT
+  FAILED
+  /// Consent withdrawn, unsubscribed, or suppressed at send time.
+  SKIPPED
+}
+
+// ---------------------------------------------------------------------------
+// Shopify mirror
+// ---------------------------------------------------------------------------
+
+model Store {
+  id          String  @id @default(cuid())
+  shopDomain  String  @unique
+  shopName    String?
+  accessToken String
+  /// Shopify stopped accepting non-expiring tokens in December 2025.
+  /// Access tokens live 1 hour; the refresh token lives 90 days and can be
+  /// redeemed with no user present, so background jobs keep working.
+  tokenExpiresAt        DateTime?
+  refreshToken          String?
+  refreshTokenExpiresAt DateTime?
+
+  email       String?
+  currency    String  @default("USD")
+  timezone    String  @default("UTC")
+  countryCode String?
+
+  plan               BillingPlan @default(FREE)
+  subscriptionId     String?
+  subscriptionStatus String?
+  planActivatedAt    DateTime?
+
+  /// Sending identity. Until a merchant verifies their own domain, messages go
+  /// out on the shared PulseFlow domain — see docs/decisions.md for the
+  /// deliverability trade-off this represents.
+  senderEmail    String?
+  senderName     String?
+  senderVerified Boolean @default(false)
+
+  onboardedAt   DateTime?
+  lastSyncAt    DateTime?
+  lastSyncError String?
+  installedAt   DateTime  @default(now())
+  uninstalledAt DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  orders         Order[]
+  workflows      Workflow[]
+  enrollments    Enrollment[]
+  messages       MessageLog[]
+  discounts      DiscountGrant[]
+  suppressions   Suppression[]
+  webhookEvents  WebhookEvent[]
+  dataAccessLogs DataAccessLog[]
+
+  @@index([uninstalledAt])
+}
+
+model Order {
+  id             String @id @default(cuid())
+  shopId         String
+  shopifyOrderId String
+  orderNumber    String?
+  /// Shopify customer GID. Null for guest checkouts, which is why enrollment
+  /// identity is keyed on email rather than on this.
+  shopifyCustomerId String?
+  customerEmail     String?
+  customerName      String?
+
+  totalPrice        Decimal   @default(0) @db.Decimal(12, 2)
+  refundedAmount    Decimal   @default(0) @db.Decimal(12, 2)
+  currency          String    @default("USD")
+  financialStatus   String?
+  fulfillmentStatus String?
+  cancelledAt       DateTime?
+  processedAt       DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  store     Store           @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  lineItems OrderLineItem[]
+
+  @@unique([shopId, shopifyOrderId])
+  @@index([shopId, customerEmail])
+  @@index([shopId, processedAt])
+}
+
+model OrderLineItem {
+  id                String  @id @default(cuid())
+  orderId           String
+  shopifyLineItemId String?
+  shopifyProductId  String?
+  shopifyVariantId  String?
+  title             String
+  quantity          Int     @default(1)
+  price             Decimal @default(0) @db.Decimal(12, 2)
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+}
+
+// ---------------------------------------------------------------------------
+// Workflows
+// ---------------------------------------------------------------------------
+
+model Workflow {
+  id     String         @id @default(cuid())
+  shopId String
+  name   String
+  status WorkflowStatus @default(DRAFT)
+
+  /// The live definition, in the workflow JSON schema. Merchant-readable and
+  /// merchant-editable: the AI compiles into this shape and then steps out of
+  /// the way. Nothing at runtime calls a model.
+  definition Json
+  version    Int  @default(1)
+
+  /// "ai" | "template" | "manual" — provenance, for support and for measuring
+  /// how often compiled definitions get hand-edited afterwards.
+  createdBy   String?
+  activatedAt DateTime?
+  pausedAt    DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  store       Store             @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  versions    WorkflowVersion[]
+  enrollments Enrollment[]
+
+  @@index([shopId, status])
+}
+
+/// Immutable snapshots. A running enrollment reads the version it was enrolled
+/// on, never the live definition — editing a workflow must not rewrite the
+/// journey of a customer already halfway through it.
+model WorkflowVersion {
+  id         String   @id @default(cuid())
+  workflowId String
+  version    Int
+  definition Json
+  createdAt  DateTime @default(now())
+
+  workflow    Workflow     @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  enrollments Enrollment[]
+
+  @@unique([workflowId, version])
+}
+
+model Enrollment {
+  id                String @id @default(cuid())
+  shopId            String
+  workflowId        String
+  workflowVersionId String
+
+  /// Email is the identity here, not the Shopify customer id: guest checkouts
+  /// have no customer record, and consent and suppression are email-scoped.
+  customerEmail     String
+  shopifyCustomerId String?
+
+  /// Deterministic hash of workflowId|customerEmail|triggerEventId, unique per
+  /// shop. This is the alert-engine fingerprint idea carried over: a
+  /// redelivered orders/create webhook collapses into the row that already
+  /// exists instead of enrolling the customer a second time.
+  fingerprint String
+
+  state            EnrollmentState @default(WAITING)
+  currentStepIndex Int             @default(0)
+
+  /// The scheduler's entire query is `nextRunAt <= now() AND state = WAITING`.
+  nextRunAt DateTime?
+
+  /// Lease fields. A sweep claims a bounded batch by stamping these atomically
+  /// before doing any work, so two overlapping cron invocations can never send
+  /// the same message twice. Present from the first migration so that moving
+  /// from a daily cron to minute-level sweeps is a config change, not a schema
+  /// change.
+  lockedUntil DateTime?
+  lockedBy    String?
+
+  attempts    Int       @default(0)
+  lastError   String?
+  enrolledAt  DateTime  @default(now())
+  completedAt DateTime?
+
+  store    Store           @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  workflow Workflow        @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  snapshot WorkflowVersion @relation(fields: [workflowVersionId], references: [id])
+
+  stepRuns  StepRun[]
+  messages  MessageLog[]
+  discounts DiscountGrant[]
+
+  @@unique([shopId, fingerprint])
+  /// The sweep index. Ordering matters: state is the equality predicate.
+  @@index([state, nextRunAt])
+  @@index([shopId, workflowId, state])
+  @@index([shopId, customerEmail])
+}
+
+model StepRun {
+  id           String @id @default(cuid())
+  enrollmentId String
+  stepIndex    Int
+  /// Step `type` from the definition, denormalised so history stays readable
+  /// after the workflow has moved on several versions.
+  stepType     String
+
+  status       StepRunStatus @default(PENDING)
+  scheduledFor DateTime?
+  ranAt        DateTime?
+  /// Condition outcome, message id, discount code — whatever the step produced.
+  result       Json?
+  error        String?
+
+  enrollment Enrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+
+  @@unique([enrollmentId, stepIndex])
+  @@index([enrollmentId])
+}
+
+model MessageLog {
+  id           String  @id @default(cuid())
+  shopId       String
+  enrollmentId String?
+
+  channel   MessageChannel @default(EMAIL)
+  recipient String
+  subject   String?
+
+  /// Unique per shop. Every send goes through this, the way NotificationLog
+  /// does in StorePulse. A duplicate discount email is far worse than a
+  /// duplicate alert, so this constraint is the send-once guarantee itself and
+  /// not merely bookkeeping.
+  dedupeKey String
+
+  status MessageStatus @default(QUEUED)
+  /// Why a SKIPPED message was skipped: consent withdrawn, unsubscribed,
+  /// suppressed. Needed to answer "why didn't my customer get this?".
+  skipReason        String?
+  providerMessageId String?
+  error             String?
+  sentAt            DateTime?
+  createdAt         DateTime      @default(now())
+
+  store      Store       @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  enrollment Enrollment? @relation(fields: [enrollmentId], references: [id], onDelete: SetNull)
+
+  @@unique([shopId, dedupeKey])
+  @@index([shopId, recipient])
+  @@index([enrollmentId])
+}
+
+model DiscountGrant {
+  id           String  @id @default(cuid())
+  shopId       String
+  enrollmentId String?
+
+  shopifyDiscountId String?
+  code              String
+  /// Mirrors what was asked for, so a grant is explainable without a round
+  /// trip to Shopify.
+  percentage        Int?
+  amount            Decimal? @db.Decimal(12, 2)
+
+  expiresAt DateTime?
+  usedAt    DateTime?
+  /// Set when the resulting order is matched back, for revenue attribution.
+  usedOnOrderId String?
+  revokedAt     DateTime?
+  createdAt     DateTime  @default(now())
+
+  store      Store       @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  enrollment Enrollment? @relation(fields: [enrollmentId], references: [id], onDelete: SetNull)
+
+  @@unique([shopId, code])
+  @@index([enrollmentId])
+}
+
+/// Per-customer opt-out, scoped to one store.
+///
+/// StorePulse's List-Unsubscribe points at the merchant's own settings page,
+/// which is right for an app that emails merchants. Here the recipient is the
+/// merchant's customer, so unsubscribing must stop mail to that customer —
+/// hence a row keyed on (shopId, email) and a token that resolves to it
+/// without requiring anyone to log in.
+model Suppression {
+  id     String @id @default(cuid())
+  shopId String
+  email  String
+
+  /// Random and unguessable, embedded in the unsubscribe link.
+  token  String @unique
+  /// "unsubscribed" | "bounced" | "complained" | "manual"
+  reason String @default("unsubscribed")
+
+  createdAt DateTime @default(now())
+
+  store Store @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@unique([shopId, email])
+  @@index([shopId])
+}
+
+// ---------------------------------------------------------------------------
+// Infrastructure
+// ---------------------------------------------------------------------------
+
+model WebhookEvent {
+  id         String  @id @default(cuid())
+  shopId     String?
+  shopDomain String
+  topic      String
+  /// X-Shopify-Event-Id, or a hash of the body when absent. The unique
+  /// constraint below is what makes at-least-once delivery harmless.
+  eventId    String
+
+  payload     Json
+  processed   Boolean   @default(false)
+  processedAt DateTime?
+  attempts    Int       @default(0)
+  error       String?
+  createdAt   DateTime  @default(now())
+
+  store Store? @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@unique([shopDomain, topic, eventId])
+  @@index([shopId, topic])
+}
+
+/// Protected customer data access log. PulseFlow reads customer data *and acts
+/// on it*, so this matters more here than it did in StorePulse.
+model DataAccessLog {
+  id          String   @id @default(cuid())
+  shopId      String
+  action      String
+  recordCount Int      @default(0)
+  detail      String?
+  createdAt   DateTime @default(now())
+
+  store Store @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@index([shopId, createdAt])
+}
+
+model OAuthState {
+  id         String   @id @default(cuid())
+  state      String   @unique
+  shopDomain String
+  createdAt  DateTime @default(now())
+}
