@@ -1,23 +1,30 @@
+import Link from 'next/link';
 import prisma from '@/lib/prisma';
 import { getCurrentStore } from '@/lib/session';
+import StatusPill from '@/components/workflows/StatusPill';
 
 export const dynamic = 'force-dynamic';
-
-const STATUS_LABEL = {
-  DRAFT: 'Draft',
-  ACTIVE: 'Active',
-  PAUSED: 'Paused',
-  ARCHIVED: 'Archived',
-};
 
 export default async function WorkflowsPage() {
   const store = await getCurrentStore();
 
   const workflows = await prisma.workflow.findMany({
     where: { shopId: store.id, status: { not: 'ARCHIVED' } },
-    orderBy: { updatedAt: 'desc' },
-    include: { _count: { select: { enrollments: true } } },
+    orderBy: [{ status: 'asc' }, { updatedAt: 'desc' }],
+    include: {
+      _count: { select: { enrollments: true } },
+    },
   });
+
+  // One query for the counts that matter on this screen, rather than one per
+  // workflow: a merchant with twenty automations should not cost twenty round
+  // trips to render a list.
+  const active = await prisma.enrollment.groupBy({
+    by: ['workflowId'],
+    where: { shopId: store.id, state: { in: ['WAITING', 'RUNNING'] } },
+    _count: { _all: true },
+  });
+  const activeByWorkflow = new Map(active.map((row) => [row.workflowId, row._count._all]));
 
   return (
     <>
@@ -28,6 +35,9 @@ export default async function WorkflowsPage() {
             Every automation stays a draft until you activate it. Nothing is sent before then.
           </p>
         </div>
+        <Link href="/workflows/new" className="sp-btn sp-btn-primary">
+          New automation
+        </Link>
       </div>
 
       {workflows.length === 0 ? (
@@ -38,10 +48,13 @@ export default async function WorkflowsPage() {
             </div>
             <div className="sp-empty-title">No automations yet</div>
             <p className="sp-empty-text">
-              Automations describe what happens after an order: wait, check a condition, send a
-              message, offer a discount. You will be able to write one in plain language — for now
-              the engine that runs them is still being built.
+              An automation describes what happens after an order: wait, check a condition, send a
+              message, offer a discount. Start from a template and see who it would have reached
+              before you turn it on.
             </p>
+            <Link href="/workflows/new" className="sp-btn sp-btn-primary mt-3">
+              Create your first automation
+            </Link>
           </div>
         </div>
       ) : (
@@ -51,16 +64,23 @@ export default async function WorkflowsPage() {
               <tr>
                 <th>Name</th>
                 <th>Status</th>
-                <th>Version</th>
-                <th>Customers enrolled</th>
+                <th>In progress</th>
+                <th>Total enrolled</th>
               </tr>
             </thead>
             <tbody>
               {workflows.map((workflow) => (
                 <tr key={workflow.id}>
-                  <td>{workflow.name}</td>
-                  <td>{STATUS_LABEL[workflow.status] ?? workflow.status}</td>
-                  <td>v{workflow.version}</td>
+                  <td>
+                    <Link href={`/workflows/${workflow.id}`} style={{ fontWeight: 600, color: 'inherit' }}>
+                      {workflow.name}
+                    </Link>
+                    <div className="sp-help">v{workflow.version}</div>
+                  </td>
+                  <td>
+                    <StatusPill status={workflow.status} />
+                  </td>
+                  <td>{activeByWorkflow.get(workflow.id) ?? 0}</td>
                   <td>{workflow._count.enrollments}</td>
                 </tr>
               ))}

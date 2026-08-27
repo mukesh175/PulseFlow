@@ -94,15 +94,21 @@ async function main() {
   check('an address with no consent record is skipped', unknown.status === 'SKIPPED', unknown.skipReason);
   check('the refusal is on consent grounds', unknown.skipReason === 'no_customer_record', unknown.skipReason);
 
-  // --- channels that are not live yet ---------------------------------------
+  // --- channel readiness ----------------------------------------------------
+  // Both halves went live in phase 5. The hold mechanism is kept and still
+  // checked, because it is what a future channel — WhatsApp, ruled out of v1 by
+  // the brief — will arrive behind.
   console.log('\nCHANNEL READINESS');
   check('email reports itself live', channels.live.email === true);
-  check('discounts report themselves not live', channels.live.discount === false);
-  check(
-    'a workflow with a discount step is held',
-    unsupportedSteps(channels, thirtyDayWinback).includes('create_discount')
-  );
+  check('discounts report themselves live', channels.live.discount === true);
+  check('nothing is held while every channel is live', unsupportedSteps(channels, thirtyDayWinback).length === 0);
   check('an email-only workflow is not held', unsupportedSteps(channels, firstOrderThankYou).length === 0);
+
+  const pretendPartial = { ...channels, live: { email: true, discount: false } };
+  check(
+    'the hold still works when a channel is not live',
+    unsupportedSteps(pretendPartial, thirtyDayWinback).includes('create_discount')
+  );
 
   console.log(failures === 0 ? '\nAll phase 4 checks passed.' : `\n${failures} check(s) failed.`);
   if (failures > 0) process.exitCode = 1;
