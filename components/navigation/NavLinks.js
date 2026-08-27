@@ -3,11 +3,12 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
-// Kept to routes that exist. Activity, Audience and Plan arrive with the phases
-// that give them something to show — a nav entry leading to an empty page is
-// worse than no nav entry.
+// Kept to routes that exist. A nav entry leading to an empty page is worse
+// than no nav entry — Activity earned its place once there was message history
+// to show.
 export const NAV_ITEMS = [
   { href: '/workflows', label: 'Automations', icon: '⚡' },
+  { href: '/activity', label: 'Activity', icon: '📬' },
   { href: '/settings', label: 'Settings', icon: '⚙' },
 ];
 

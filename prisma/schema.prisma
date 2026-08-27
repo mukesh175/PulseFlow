@@ -103,6 +103,10 @@ model Store {
   /// webhook registration that failed — without order webhooks the app looks
   /// installed but silently never sees an order.
   webhooksRegisteredAt DateTime?
+  /// Set once the historical order backfill has finished. Its own marker for
+  /// the same reason: a store with webhooks working but no history still shows
+  /// every preview as zero, which reads as the app being broken.
+  ordersBackfilledAt   DateTime?
   installedAt   DateTime  @default(now())
   uninstalledAt DateTime?
   createdAt     DateTime  @default(now())
