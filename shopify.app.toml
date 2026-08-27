@@ -2,7 +2,7 @@
 
 client_id = ""
 name = "PulseFlow"
-application_url = "https://pulseflow.vercel.app"
+application_url = "https://pulse-flow-mu.vercel.app"
 embedded = true
 handle = "pulseflow-automations"
 
@@ -32,7 +32,7 @@ api_version = "2025-01"
 scopes = "read_orders,read_products,read_customers,write_discounts,read_discounts"
 
 [auth]
-redirect_urls = [ "https://pulseflow.vercel.app/api/auth/callback" ]
+redirect_urls = [ "https://pulse-flow-mu.vercel.app/api/auth/callback" ]
 
 [pos]
 embedded = false
