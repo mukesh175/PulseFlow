@@ -98,6 +98,11 @@ model Store {
   onboardedAt   DateTime?
   lastSyncAt    DateTime?
   lastSyncError String?
+  /// Set once webhook subscriptions are confirmed for this store. Kept
+  /// separate from lastSyncAt so a profile sync that succeeds cannot mask a
+  /// webhook registration that failed — without order webhooks the app looks
+  /// installed but silently never sees an order.
+  webhooksRegisteredAt DateTime?
   installedAt   DateTime  @default(now())
   uninstalledAt DateTime?
   createdAt     DateTime  @default(now())

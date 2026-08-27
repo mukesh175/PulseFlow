@@ -9,8 +9,7 @@ import {
   SESSION_COOKIE,
   sessionCookieOptions,
 } from '@/lib/shopify/auth';
-import { registerWebhooks } from '@/lib/shopify/webhooks';
-import { syncShopProfile } from '@/lib/sync';
+import { finalizeInstall } from '@/lib/install';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -75,18 +74,11 @@ export async function GET(request) {
   // set that way by app/uninstalled — because resuming sends to customers
   // without the merchant asking is exactly the failure this app must not have.
 
-  let hydrated = store;
-  try {
-    hydrated = await syncShopProfile(store);
-  } catch (error) {
-    console.error('[pulseflow] shop profile sync failed', error);
-  }
-
-  try {
-    await registerWebhooks(hydrated);
-  } catch (error) {
-    console.error('[pulseflow] webhook registration failed', error);
-  }
+  // Shared with the managed-installation path in lib/session.js, so a store
+  // ends up in the same state however it got here. Failures inside are logged
+  // and retried on the merchant's next page load rather than failing the
+  // install they are in the middle of.
+  await finalizeInstall(store);
 
   // OAuth runs in the top window (Shopify's consent screen refuses to be
   // framed), so send the merchant back into the Shopify admin rather than
