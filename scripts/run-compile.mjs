@@ -5,6 +5,8 @@ import { validateWorkflowDefinition } from '@/lib/workflows/schema';
 import { compileWorkflow, isCompilerConfigured } from '@/lib/ai/compile';
 import { describeDefinition } from '@/lib/workflows/describe';
 import { attributionFor } from '@/lib/workflows/attribution';
+import { previewWorkflow } from '@/lib/workflows/preview';
+import { firstOrderThankYou } from '@/lib/workflows/examples';
 
 /**
  * Phases 6 and 7.
@@ -119,6 +121,26 @@ async function main() {
     check('an unknown workflow reports zero rather than throwing', result.direct.revenue === 0);
     check('and reports the two kinds separately', 'direct' in result && 'influenced' in result);
     check('the influence window is stated', result.windowDays === 7, `${result.windowDays} days`);
+  }
+
+  // --- access logging -------------------------------------------------------
+  // The privacy policy promises this specifically, so it is checked rather than
+  // assumed. A claim on a legal page with nothing behind it is the failure this
+  // guards against.
+  console.log('\nACCESS LOGGING');
+  if (store) {
+    const before = await prisma.dataAccessLog.count({ where: { shopId: store.id, action: 'PREVIEW' } });
+    await previewWorkflow({ shopId: store.id, definition: firstOrderThankYou, days: 30 });
+    const after = await prisma.dataAccessLog.count({ where: { shopId: store.id, action: 'PREVIEW' } });
+
+    check('a preview records an access', after === before + 1, `${before} → ${after}`);
+
+    const entry = await prisma.dataAccessLog.findFirst({
+      where: { shopId: store.id, action: 'PREVIEW' },
+      orderBy: { createdAt: 'desc' },
+    });
+    check('it says a merchant caused it', entry?.detail?.startsWith('merchant:') === true, entry?.detail);
+    check('it holds no personal data', !/@/.test(entry?.detail ?? ''), entry?.detail);
   }
 
   console.log(failures === 0 ? '\nAll checks passed.' : `\n${failures} check(s) failed.`);

@@ -1,3 +1,4 @@
+import prisma from '@/lib/prisma';
 import { getCurrentStore } from '@/lib/session';
 import { needsReconnect } from '@/lib/shopify/token';
 import { env } from '@/lib/env';
@@ -16,8 +17,21 @@ function Row({ label, value, help }) {
   );
 }
 
+const ACCESS_LABEL = {
+  PREVIEW: 'Automation preview',
+  CONSENT_CHECK: 'Marketing consent checked before sending',
+  DATA_REQUEST: 'Customer data request from Shopify',
+  REDACT: 'Customer data erased at Shopify’s request',
+};
+
 export default async function SettingsPage() {
   const store = await getCurrentStore();
+
+  const accessLog = await prisma.dataAccessLog.findMany({
+    where: { shopId: store.id },
+    orderBy: { createdAt: 'desc' },
+    take: 20,
+  });
 
   const connected = !needsReconnect(store);
   const sender = store.senderVerified
@@ -44,6 +58,43 @@ export default async function SettingsPage() {
           value={connected ? 'Connected' : 'Needs reconnecting'}
           help="Shopify access tokens last one hour and are refreshed automatically in the background."
         />
+      </div>
+
+      <div className="sp-card sp-card-pad mt-3" style={{ maxWidth: 720 }}>
+        <div className="sp-card-title">Data access log</div>
+        <div className="sp-card-sub mt-1">
+          Every time PulseFlow reads a customer name or email address, it is recorded here — what
+          was read, how much, and whether it was you looking at a screen or an automated job. The
+          log records that access happened, never the data itself.
+        </div>
+        <hr className="sp-divider" />
+
+        {accessLog.length === 0 ? (
+          <p className="sp-card-sub mb-0">Nothing yet.</p>
+        ) : (
+          <table className="sp-table">
+            <thead>
+              <tr>
+                <th>When</th>
+                <th>What</th>
+                <th style={{ textAlign: 'right' }}>Records</th>
+              </tr>
+            </thead>
+            <tbody>
+              {accessLog.map((entry) => (
+                <tr key={entry.id}>
+                  <td className="sp-help">{entry.createdAt.toISOString().slice(0, 16).replace('T', ' ')}</td>
+                  <td>
+                    {ACCESS_LABEL[entry.action] ?? entry.action}
+                    {entry.detail && <div className="sp-help">{entry.detail}</div>}
+                  </td>
+                  <td style={{ textAlign: 'right' }}>{entry.recordCount}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+        <div className="sp-help mt-3">Kept for 12 months, then deleted.</div>
       </div>
 
       <div className="sp-card sp-card-pad mt-3" style={{ maxWidth: 720 }}>

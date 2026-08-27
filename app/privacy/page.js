@@ -142,9 +142,9 @@ export default function PrivacyPage() {
 
       <LegalSection title="Access logging">
         <p>
-          Reads of customer name and email are recorded in an internal access log: what was accessed, how many
-          records, and whether it was a merchant viewing a screen or an automated job. The log records the fact of
-          access, never the personal data itself.
+          Reads of customer name and email are recorded in an access log: what was accessed, how many records, and
+          whether it was a merchant viewing a screen or an automated job. The log records the fact of access, never
+          the personal data itself. Merchants can see their own log in the app, under Settings.
         </p>
       </LegalSection>
 
