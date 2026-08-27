@@ -1,13 +1,25 @@
+import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import InstallForm from '@/components/InstallForm';
 import { isConfigured } from '@/lib/env';
 import { getCurrentStore } from '@/lib/session';
+import { normalizeShopDomain } from '@/lib/shopify/auth';
 
 export const dynamic = 'force-dynamic';
 
 export default async function LandingPage() {
-  // An installed merchant arriving embedded should never see the marketing
-  // page — send them straight into the app.
+  // A verified shop means middleware checked an App Bridge session token, so
+  // this request came from inside the Shopify admin. Send it into the app even
+  // when no Store row exists yet: under managed installation the merchant is
+  // granted access without passing through our OAuth callback, and the row is
+  // created by the token exchange in the (app) layout. Requiring the row here
+  // would strand every first-time merchant on the marketing page, since the
+  // only route that can create it is the one they are being kept from.
+  const headerList = await headers();
+  if (normalizeShopDomain(headerList.get('x-pulseflow-shop'))) redirect('/workflows');
+
+  // Not embedded: a returning merchant with a valid session cookie still skips
+  // the marketing page, but an unknown visitor sees it.
   const store = await getCurrentStore({ autoInstall: false });
   if (store && !store.uninstalledAt) redirect('/workflows');
 
