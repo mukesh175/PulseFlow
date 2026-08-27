@@ -82,6 +82,23 @@ export default function TermsPage() {
           changes the categories of data processed without updating this page.
         </p>
         <p>
+          <strong>The automation writer.</strong> When a merchant chooses to describe an automation in their own
+          words, that description and the store&apos;s name are sent to a language model provider — Anthropic,
+          Google or Groq, depending on how the app is configured — which returns the workflow steps. This is the
+          only feature that sends anything to a model provider, and it runs only when the merchant uses it.
+        </p>
+        <p>
+          <strong>No customer data is sent to a model provider.</strong> Customer names, email addresses, consent
+          state and order history are never part of that request. The model writes the automation; it plays no part
+          in running one, and nothing on the sending path calls a model.
+        </p>
+        <p>
+          Where the app is configured against a provider&apos;s free tier, that provider may use the submitted text
+          to improve its own services under its terms. The text is the merchant&apos;s description of what they want
+          to happen — never their customers&apos; data — but merchants who would rather it were not used that way
+          can create automations from templates instead, which sends nothing anywhere.
+        </p>
+        <p>
           <strong>Security.</strong> Data is encrypted in transit and at rest, including backups. Access to
           production data is limited to those who need it to operate the service. Reads of customer name and email
           are logged.

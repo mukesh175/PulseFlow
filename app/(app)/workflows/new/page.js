@@ -1,6 +1,6 @@
 import { TEMPLATES } from '@/lib/workflows/templates';
 import { describeDefinition } from '@/lib/workflows/describe';
-import { isCompilerConfigured } from '@/lib/ai/compile';
+import { isCompilerConfigured, compilerName } from '@/lib/ai/compile';
 import TemplatePicker from '@/components/workflows/TemplatePicker';
 import DescribeForm from '@/components/workflows/DescribeForm';
 
@@ -19,6 +19,7 @@ export default function NewWorkflowPage() {
   }));
 
   const compilerReady = isCompilerConfigured();
+  const writer = compilerName();
 
   return (
     <>
@@ -29,7 +30,7 @@ export default function NewWorkflowPage() {
       </p>
 
       <div className="mt-4">
-        <DescribeForm configured={compilerReady} />
+        <DescribeForm configured={compilerReady} writer={writer} />
       </div>
 
       <div className="mt-4">

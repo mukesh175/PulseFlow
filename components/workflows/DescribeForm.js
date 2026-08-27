@@ -15,7 +15,7 @@ const EXAMPLE = 'Email customers 30 days after their first purchase with 10% off
  * model's reading of their sentence a fact about their store before they had
  * seen it.
  */
-export default function DescribeForm({ configured }) {
+export default function DescribeForm({ configured, writer }) {
   const router = useRouter();
   const [description, setDescription] = useState('');
   const [state, setState] = useState({ busy: false, error: null, result: null });
@@ -59,7 +59,8 @@ export default function DescribeForm({ configured }) {
       <div className="sp-card-title">Describe it in your own words</div>
       <p className="sp-card-sub mt-1">
         Say what you want to happen. It is written out as steps you can read and change before
-        anything is saved.
+        anything is saved. Only what you type here and your store name are sent to {writer} — never
+        your customers&apos; details.
       </p>
 
       <form onSubmit={compile} className="mt-3">

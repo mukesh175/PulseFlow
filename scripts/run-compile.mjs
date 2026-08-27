@@ -2,7 +2,7 @@ import 'dotenv/config';
 import prisma from '@/lib/prisma';
 import { renderBody, placeholdersUsed } from '@/lib/workflows/merge';
 import { validateWorkflowDefinition } from '@/lib/workflows/schema';
-import { compileWorkflow, isCompilerConfigured } from '@/lib/ai/compile';
+import { compileWorkflow, isCompilerConfigured, compilerName } from '@/lib/ai/compile';
 import { describeDefinition } from '@/lib/workflows/describe';
 import { attributionFor } from '@/lib/workflows/attribution';
 import { previewWorkflow } from '@/lib/workflows/preview';
@@ -91,8 +91,10 @@ async function main() {
   // --- the compiler itself --------------------------------------------------
   console.log('\nCOMPILER');
   if (!isCompilerConfigured()) {
-    console.log('  skipped — ANTHROPIC_API_KEY is not set, so the compile path is UNVERIFIED');
+    console.log('  skipped — no provider key set, so the compile path is UNVERIFIED.');
+    console.log('  Set ANTHROPIC_API_KEY, GEMINI_API_KEY or GROQ_API_KEY in .env and run again.');
   } else {
+    console.log(`  provider: ${compilerName()}`);
     const store = await prisma.store.findFirst({ where: { uninstalledAt: null } });
     const { definition, name } = await compileWorkflow({
       description:
