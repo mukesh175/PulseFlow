@@ -116,6 +116,13 @@ async function main() {
     console.log(`  ${String(step.stepIndex).padStart(2)}  ${step.stepType.padEnd(16)} ${step.status.padEnd(10)} ${detail}`);
   }
 
+  // The dry-run channel ignores `store`, so a lost relation would not show up
+  // here. Assert on it directly: the real email channel reads store.id, and
+  // this is the difference between working and crashing on the first live send.
+  const storeSeen = channels.events.every((event) => event.storeId === store.id);
+  console.log(`Store reached every channel call: ${storeSeen ? 'yes' : 'NO — relations were dropped'}`);
+  if (!storeSeen) process.exit(1);
+
   console.log('\nSide effects the channels recorded:');
   for (const event of channels.events) {
     console.log(`  ${event.type.padEnd(9)} ${event.type === 'email' ? event.subject : event.code}`);

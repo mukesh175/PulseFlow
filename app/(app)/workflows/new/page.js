@@ -1,6 +1,8 @@
 import { TEMPLATES } from '@/lib/workflows/templates';
 import { describeDefinition } from '@/lib/workflows/describe';
+import { isCompilerConfigured } from '@/lib/ai/compile';
 import TemplatePicker from '@/components/workflows/TemplatePicker';
+import DescribeForm from '@/components/workflows/DescribeForm';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,15 +18,26 @@ export default function NewWorkflowPage() {
     steps: describeDefinition(template.definition),
   }));
 
+  const compilerReady = isCompilerConfigured();
+
   return (
     <>
       <h1 style={{ fontSize: 20, margin: 0 }}>New automation</h1>
       <p className="sp-card-sub mt-1">
-        Pick a starting point. It is created as a draft, so you can see who it would reach before
+        Whichever way you start, it is created as a draft — so you can see who it would reach before
         anything is sent.
       </p>
 
-      <TemplatePicker templates={templates} />
+      <div className="mt-4">
+        <DescribeForm configured={compilerReady} />
+      </div>
+
+      <div className="mt-4">
+        <h2 style={{ fontSize: 16, margin: 0 }}>
+          {compilerReady ? 'Or start from a template' : 'Start from a template'}
+        </h2>
+        <TemplatePicker templates={templates} />
+      </div>
     </>
   );
 }

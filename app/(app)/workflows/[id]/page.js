@@ -6,6 +6,7 @@ import { describeDefinition, describeTrigger } from '@/lib/workflows/describe';
 import StatusPill from '@/components/workflows/StatusPill';
 import WorkflowActions from '@/components/workflows/WorkflowActions';
 import PreviewPanel from '@/components/workflows/PreviewPanel';
+import { attributionFor } from '@/lib/workflows/attribution';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,7 +28,7 @@ export default async function WorkflowDetailPage({ params }) {
   const workflow = await prisma.workflow.findFirst({ where: { id, shopId: store.id } });
   if (!workflow) notFound();
 
-  const [byState, messages, discounts] = await Promise.all([
+  const [byState, messages, discounts, attribution] = await Promise.all([
     prisma.enrollment.groupBy({
       by: ['state'],
       where: { workflowId: workflow.id },
@@ -35,6 +36,7 @@ export default async function WorkflowDetailPage({ params }) {
     }),
     prisma.messageLog.count({ where: { enrollment: { workflowId: workflow.id }, status: 'SENT' } }),
     prisma.discountGrant.count({ where: { enrollment: { workflowId: workflow.id } } }),
+    attributionFor({ shopId: store.id, workflowId: workflow.id }),
   ]);
 
   const steps = describeDefinition(workflow.definition);
@@ -100,6 +102,53 @@ export default async function WorkflowDetailPage({ params }) {
           </>
         )}
       </div>
+
+      {attribution.messagesSent > 0 && (
+        <div className="sp-card sp-card-pad mt-3" style={{ maxWidth: 720 }}>
+          <div className="sp-card-title">What it brought in</div>
+          <div className="sp-card-sub mt-1">Last {attribution.days} days, net of refunds.</div>
+          <hr className="sp-divider" />
+
+          <div className="d-flex gap-4 flex-wrap">
+            <div>
+              <div style={{ fontSize: 22, fontWeight: 640 }}>
+                {money(attribution.direct.revenue, store.currency)}
+              </div>
+              <div className="sp-label mb-0 mt-1">Directly</div>
+              <div className="sp-help" style={{ maxWidth: 260 }}>
+                {attribution.direct.orders} order{attribution.direct.orders === 1 ? '' : 's'} that used a
+                code this automation issued.
+              </div>
+            </div>
+
+            <div>
+              <div style={{ fontSize: 22, fontWeight: 640, color: 'var(--sp-muted)' }}>
+                {money(attribution.influenced.revenue, store.currency)}
+              </div>
+              <div className="sp-label mb-0 mt-1">Possibly influenced</div>
+              <div className="sp-help" style={{ maxWidth: 260 }}>
+                {attribution.influenced.orders} order{attribution.influenced.orders === 1 ? '' : 's'} placed
+                within {attribution.windowDays} days of a message, without using a code.
+              </div>
+            </div>
+          </div>
+
+          {/* Said plainly, because the second number is the one a merchant will
+              be tempted to treat as earnings. */}
+          <div className="sp-help mt-3">
+            Only the first number is a fact. The second is a correlation — some of those customers
+            would have ordered anyway.
+          </div>
+        </div>
+      )}
     </>
   );
+}
+
+function money(amount, currency) {
+  try {
+    return new Intl.NumberFormat('en', { style: 'currency', currency: currency || 'USD' }).format(amount);
+  } catch {
+    return `${amount}`;
+  }
 }
