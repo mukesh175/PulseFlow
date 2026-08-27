@@ -1,19 +1,14 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
-client_id = ""
+client_id = "d6deabc8eb5132535aa4d5e5ba97d056"
 name = "PulseFlow"
 application_url = "https://pulse-flow-mu.vercel.app"
 embedded = true
 handle = "pulseflow-automations"
 
 [webhooks]
-api_version = "2025-01"
+api_version = "2026-07"
 
-  # The three mandatory privacy topics are declared here rather than registered
-  # through the API — Shopify manages these itself and requires them for any app
-  # it distributes. PulseFlow's customers/redact is a real deletion, not a
-  # no-op: it holds message and discount history the merchant cannot export
-  # from the Shopify admin.
   [[webhooks.subscriptions]]
   uri = "/api/webhooks/customers-data-request"
   compliance_topics = [ "customers/data_request" ]
@@ -30,11 +25,11 @@ api_version = "2025-01"
 # PulseFlow sends messages and creates discounts, so unlike StorePulse it needs
 # write scopes and must declare a marketing use of protected customer data.
 scopes = "read_orders,read_products,read_customers,write_discounts,read_discounts"
+optional_scopes = [ ]
+use_legacy_install_flow = false
 
 [auth]
 redirect_urls = [ "https://pulse-flow-mu.vercel.app/api/auth/callback" ]
 
 [pos]
 embedded = false
-
-[build]
