@@ -1,7 +1,13 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { requireStore, withStore } from '@/lib/api';
-import { activateWorkflow, pauseWorkflow, cancelEnrollments } from '@/lib/workflows/manage';
+import {
+  activateWorkflow,
+  pauseWorkflow,
+  cancelEnrollments,
+  saveDefinition,
+  InvalidWorkflowError,
+} from '@/lib/workflows/manage';
 import { createChannels, unsupportedSteps } from '@/lib/channels';
 
 export const runtime = 'nodejs';
@@ -54,5 +60,66 @@ export const POST = withStore(async (request, context) => {
     return NextResponse.json({ cancelled });
   }
 
+  if (action === 'rename') {
+    const name = String(body?.name ?? '').trim().slice(0, 120);
+    if (!name) return NextResponse.json({ error: 'A name is required.' }, { status: 400 });
+
+    const updated = await prisma.workflow.update({ where: { id: workflow.id }, data: { name } });
+    return NextResponse.json({ name: updated.name });
+  }
+
+  if (action === 'save-definition') {
+    try {
+      // Saves a new immutable version. Customers already inside the workflow
+      // keep running the version they entered on — editing must not rewrite a
+      // journey someone is halfway through.
+      const updated = await saveDefinition({ workflowId: workflow.id, definition: body?.definition });
+      return NextResponse.json({ version: updated.version });
+    } catch (error) {
+      if (error instanceof InvalidWorkflowError) {
+        return NextResponse.json({ error: error.message, errors: error.errors }, { status: 422 });
+      }
+      throw error;
+    }
+  }
+
   return NextResponse.json({ error: 'Unknown action.' }, { status: 400 });
+});
+
+/**
+ * Delete an automation — or archive it, depending on what it has done.
+ *
+ * A workflow nobody has entered is just a draft, and deleting it should delete
+ * it. One that has run is different: its enrollments, message records and
+ * discount grants are the answer to "why did my customer get this?", and the
+ * privacy policy says that record is kept. Destroying it because a merchant
+ * tidied their list would throw away the only evidence of what was sent.
+ *
+ * So: hard delete while it is untouched, archive once it is not, and say which
+ * happened rather than reporting both as "deleted".
+ */
+export const DELETE = withStore(async (request, context) => {
+  const store = await requireStore();
+  const { id } = await context.params;
+
+  const workflow = await prisma.workflow.findFirst({ where: { id, shopId: store.id } });
+  if (!workflow) return NextResponse.json({ error: 'Automation not found.' }, { status: 404 });
+
+  const enrollments = await prisma.enrollment.count({ where: { workflowId: workflow.id } });
+
+  if (enrollments === 0) {
+    await prisma.workflow.delete({ where: { id: workflow.id } });
+    return NextResponse.json({ outcome: 'deleted' });
+  }
+
+  // Stop anything still running before archiving, or those customers would
+  // carry on inside an automation the merchant believes is gone.
+  const cancelled = await cancelEnrollments(workflow.id);
+
+  await prisma.workflow.update({
+    where: { id: workflow.id },
+    data: { status: 'ARCHIVED', pausedAt: new Date() },
+  });
+
+  return NextResponse.json({ outcome: 'archived', enrollments, cancelled });
 });

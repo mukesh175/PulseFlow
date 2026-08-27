@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation';
 import prisma from '@/lib/prisma';
 import { getCurrentStore } from '@/lib/session';
 import { describeDefinition, describeTrigger } from '@/lib/workflows/describe';
-import StatusPill from '@/components/workflows/StatusPill';
+import WorkflowHeader from '@/components/workflows/WorkflowHeader';
 import WorkflowActions from '@/components/workflows/WorkflowActions';
 import PreviewPanel from '@/components/workflows/PreviewPanel';
 import { attributionFor } from '@/lib/workflows/attribution';
@@ -40,6 +40,7 @@ export default async function WorkflowDetailPage({ params }) {
   ]);
 
   const steps = describeDefinition(workflow.definition);
+  const totalEnrollments = byState.reduce((sum, row) => sum + row._count._all, 0);
   const inFlight = byState
     .filter((row) => row.state === 'WAITING' || row.state === 'RUNNING')
     .reduce((sum, row) => sum + row._count._all, 0);
@@ -50,14 +51,16 @@ export default async function WorkflowDetailPage({ params }) {
         ← All automations
       </Link>
 
-      <div className="d-flex align-items-start justify-content-between flex-wrap gap-3 mt-2">
-        <div>
-          <h1 style={{ fontSize: 20, margin: 0 }}>{workflow.name}</h1>
-          <div className="d-flex align-items-center gap-2 mt-2">
-            <StatusPill status={workflow.status} />
-            <span className="sp-card-sub">version {workflow.version}</span>
-          </div>
-        </div>
+      <WorkflowHeader
+        workflowId={workflow.id}
+        name={workflow.name}
+        status={workflow.status}
+        version={workflow.version}
+        definition={workflow.definition}
+        enrollments={totalEnrollments}
+      />
+
+      <div className="d-flex justify-content-end mt-3">
         <WorkflowActions workflowId={workflow.id} status={workflow.status} inFlight={inFlight} />
       </div>
 
