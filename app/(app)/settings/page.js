@@ -21,6 +21,8 @@ const ACCESS_LABEL = {
   PREVIEW: 'Automation preview',
   ACTIVITY: 'Message history viewed',
   ORDER_IMPORT: 'Orders imported from Shopify',
+  AUDIENCE: 'Customers in automations viewed',
+  ENROLL_BLOCKED: 'Enrollment paused — monthly limit reached',
   CONSENT_CHECK: 'Marketing consent checked before sending',
   DATA_REQUEST: 'Customer data request from Shopify',
   REDACT: 'Customer data erased at Shopify’s request',

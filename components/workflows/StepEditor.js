@@ -5,16 +5,26 @@ import { useRouter } from 'next/navigation';
 import { fetchJson } from '@/lib/utils/fetchJson';
 
 /**
- * Edit an automation's steps.
+ * Edit an automation's steps: change them, reorder them, add and remove them.
  *
- * Scoped to what a merchant actually changes after reading their automation
- * back: the wording of a message, the length of a wait, the size of a discount.
- * Steps can be removed but not added or reordered — that needs a builder, and
- * shipping a half-built one would be worse than saying plainly what this does.
+ * There is no validation in here beyond what the inputs enforce. Moving a
+ * discount below the email that carries its code, or removing the discount a
+ * later condition depends on, is caught by the server's validator on save and
+ * reported against the step that caused it. Duplicating those rules in the
+ * browser would mean two sets of rules that can disagree, and the merchant
+ * believing whichever one spoke last.
  *
  * Saving creates a new version. Customers already inside keep running the
  * version they entered on, so editing cannot rewrite a journey in progress.
  */
+
+const NEW_STEP = {
+  wait: { type: 'wait', days: 7 },
+  send_email: { type: 'send_email', subject: '', body: '' },
+  create_discount: { type: 'create_discount', percentage: 10, expiresInDays: 30 },
+  condition: { type: 'condition', check: 'has_not_ordered_since_enrollment' },
+};
+
 export default function StepEditor({ workflowId, definition, version, onDone }) {
   const router = useRouter();
   const [steps, setSteps] = useState(() => structuredClone(definition.steps));
@@ -26,6 +36,20 @@ export default function StepEditor({ workflowId, definition, version, onDone }) 
 
   function remove(index) {
     setSteps((current) => current.filter((_, i) => i !== index));
+  }
+
+  function move(index, delta) {
+    setSteps((current) => {
+      const target = index + delta;
+      if (target < 0 || target >= current.length) return current;
+      const next = [...current];
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
+  }
+
+  function add(type) {
+    setSteps((current) => [...current, structuredClone(NEW_STEP[type])]);
   }
 
   async function save() {
@@ -58,18 +82,40 @@ export default function StepEditor({ workflowId, definition, version, onDone }) 
       <div className="d-flex flex-column gap-3">
         {steps.map((step, index) => (
           <div key={index} className="sp-card sp-card-pad" style={{ background: 'var(--sp-canvas)', boxShadow: 'none' }}>
-            <div className="d-flex justify-content-between align-items-start gap-2">
+            <div className="d-flex justify-content-between align-items-start gap-2 flex-wrap">
               <div className="sp-label mb-0">
                 {index + 1}. {LABEL[step.type] ?? step.type}
               </div>
-              <button
-                type="button"
-                className="sp-btn sp-btn-sm"
-                onClick={() => remove(index)}
-                disabled={state.busy}
-              >
-                Remove
-              </button>
+              <div className="d-flex gap-1">
+                <button
+                  type="button"
+                  className="sp-btn sp-btn-sm"
+                  onClick={() => move(index, -1)}
+                  disabled={state.busy || index === 0}
+                  aria-label={`Move step ${index + 1} earlier`}
+                  title="Move earlier"
+                >
+                  ↑
+                </button>
+                <button
+                  type="button"
+                  className="sp-btn sp-btn-sm"
+                  onClick={() => move(index, 1)}
+                  disabled={state.busy || index === steps.length - 1}
+                  aria-label={`Move step ${index + 1} later`}
+                  title="Move later"
+                >
+                  ↓
+                </button>
+                <button
+                  type="button"
+                  className="sp-btn sp-btn-sm"
+                  onClick={() => remove(index)}
+                  disabled={state.busy}
+                >
+                  Remove
+                </button>
+              </div>
             </div>
 
             <div className="mt-2">
@@ -80,8 +126,35 @@ export default function StepEditor({ workflowId, definition, version, onDone }) 
       </div>
 
       {steps.length === 0 && (
-        <p className="sp-card-sub">Every step has been removed. Add one back before saving.</p>
+        <p className="sp-card-sub mt-3">Every step has been removed. Add one back before saving.</p>
       )}
+
+      <div className="mt-3">
+        <div className="sp-label">Add a step</div>
+        <div className="d-flex gap-2 flex-wrap">
+          <button type="button" className="sp-btn sp-btn-sm" onClick={() => add('wait')} disabled={state.busy}>
+            + Wait
+          </button>
+          <button type="button" className="sp-btn sp-btn-sm" onClick={() => add('send_email')} disabled={state.busy}>
+            + Email
+          </button>
+          <button
+            type="button"
+            className="sp-btn sp-btn-sm"
+            onClick={() => add('create_discount')}
+            disabled={state.busy}
+          >
+            + Discount
+          </button>
+          <button type="button" className="sp-btn sp-btn-sm" onClick={() => add('condition')} disabled={state.busy}>
+            + Condition
+          </button>
+        </div>
+        <div className="sp-help mt-2">
+          New steps are added at the end. Use ↑ and ↓ to put them where they belong — a discount has
+          to come before the email that carries its code.
+        </div>
+      </div>
 
       {state.error && (
         <div className="sp-help mt-3" style={{ color: 'var(--sp-critical)' }}>
@@ -141,12 +214,24 @@ function StepFields({ step, onChange, disabled }) {
 
   if (step.type === 'condition') {
     return (
-      <div className="sp-card-sub">
-        {step.check === 'has_not_ordered_since_enrollment'
-          ? 'They have not ordered again since entering this automation.'
-          : 'The discount created earlier is still unused.'}
-        <div className="sp-help mt-1">Conditions cannot be changed yet — remove it, or leave it as it is.</div>
-      </div>
+      <>
+        <label className="sp-label">Only continue if</label>
+        <select
+          className="sp-input"
+          value={step.check}
+          disabled={disabled}
+          onChange={(e) => onChange({ check: e.target.value })}
+          style={{ maxWidth: 420 }}
+        >
+          <option value="has_not_ordered_since_enrollment">
+            They have not ordered again since entering
+          </option>
+          <option value="discount_unused">A discount created earlier is still unused</option>
+        </select>
+        <div className="sp-help mt-1">
+          If this is false, the customer leaves the automation and gets nothing further from it.
+        </div>
+      </>
     );
   }
 

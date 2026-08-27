@@ -9,13 +9,15 @@ import { usePathname } from 'next/navigation';
 export const NAV_ITEMS = [
   { href: '/workflows', label: 'Automations', icon: '⚡' },
   { href: '/activity', label: 'Activity', icon: '📬' },
+  { href: '/audience', label: 'Audience', icon: '👥' },
   { href: '/settings', label: 'Settings', icon: '⚙' },
+  { href: '/plan', label: 'Plan', icon: '✦' },
 ];
 
 // Everything up to Settings is the product; the rest is account.
 const PRODUCT_COUNT = NAV_ITEMS.findIndex((i) => i.href === '/settings');
 
-const MOBILE_ITEMS = NAV_ITEMS;
+const MOBILE_ITEMS = NAV_ITEMS.filter((i) => i.href !== '/plan');
 
 function isActive(pathname, href) {
   return pathname === href || pathname.startsWith(`${href}/`);

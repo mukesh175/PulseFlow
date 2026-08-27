@@ -9,6 +9,7 @@ import {
   InvalidWorkflowError,
 } from '@/lib/workflows/manage';
 import { createChannels, unsupportedSteps } from '@/lib/channels';
+import { canActivateWorkflow } from '@/lib/billing';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -41,6 +42,16 @@ export const POST = withStore(async (request, context) => {
         { error: `This automation uses a step that is not available yet: ${blocked.join(', ')}.` },
         { status: 409 }
       );
+    }
+
+    // Checked at activation, not at creation: drafting and previewing cost
+    // nothing, and a merchant should be able to build several and compare them
+    // before choosing which one runs.
+    if (workflow.status !== 'ACTIVE') {
+      const allowance = await canActivateWorkflow(store);
+      if (!allowance.allowed) {
+        return NextResponse.json({ error: allowance.reason, upgrade: true }, { status: 402 });
+      }
     }
 
     const updated = await activateWorkflow(workflow.id);
