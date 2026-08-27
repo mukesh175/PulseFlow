@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
-import prisma from '@/lib/prisma';
 import { env } from '@/lib/env';
+import { sweep, DEFAULT_BATCH_SIZE } from '@/lib/scheduler/sweep';
+import { createDryRunChannels } from '@/lib/channels';
 import { purgeExpiredData } from '@/lib/retention';
 
 export const runtime = 'nodejs';
@@ -10,30 +11,20 @@ export const maxDuration = 60;
 /**
  * The scheduler endpoint.
  *
- * Right now this only *reports* what is due — it deliberately executes nothing,
- * because the step executor is phase 3 and a scheduler that half-runs journeys
- * is worse than one that does not run yet.
- *
- * What is settled and encoded here is the shape:
- *
- *   - the due query is `state = WAITING AND nextRunAt <= now()`, served by the
- *     ([state, nextRunAt]) index on Enrollment
- *   - work is claimed in bounded batches by stamping lockedUntil/lockedBy
- *     before anything is executed, so two overlapping invocations cannot send
- *     the same message twice
- *   - one run never tries to drain the queue; it takes a batch and returns
+ * Claims a bounded batch of due enrollments and runs them. The due query is
+ * `state = WAITING AND nextRunAt <= now()`, served by the ([state, nextRunAt])
+ * index; the database is the only place that knows when work is due.
  *
  * Cadence is currently daily (see vercel.json) — Vercel Hobby allows one cron
- * job at daily granularity and nothing finer.
- * A daily sweep makes "wait 30 days" accurate to the day and "wait 2 hours"
- * meaningless, so hour-scale steps must stay out of the workflow schema until
- * the plan changes. Moving to minute-level sweeps is a one-line change to the
- * cron expression: the lease columns are already in the schema and no migration
- * is involved.
+ * job at daily granularity and nothing finer. That is why the schema refuses to
+ * express a wait shorter than a day. Moving to minute-level sweeps is a change
+ * to the cron expression and nothing else: the lease columns are already in the
+ * schema and no migration is involved.
+ *
+ * **Sends are still dry-run.** The real email and discount channels land in
+ * phases 4 and 5. Until they exist, the safe implementation is the one wired
+ * up here, so a scheduler that runs early cannot reach a real customer.
  */
-
-/** Bounded so a run cannot exceed maxDuration however long the backlog is. */
-const BATCH_SIZE = 200;
 
 function authorize(request) {
   // Vercel Cron sends a bearer token; a manual call must present the same one.
@@ -47,22 +38,19 @@ export async function GET(request) {
   }
 
   const now = new Date();
+  const channels = createDryRunChannels();
 
-  const due = await prisma.enrollment.count({
-    where: { state: 'WAITING', nextRunAt: { lte: now } },
-  });
+  let scheduler;
+  try {
+    scheduler = await sweep({ channels, limit: DEFAULT_BATCH_SIZE, now });
+  } catch (error) {
+    console.error('[pulseflow] sweep failed', error);
+    scheduler = { error: error.message };
+  }
 
-  // Surfaced because it is the failure that will actually happen: a run that
-  // crashed mid-batch leaves rows leased to a process that is gone. Phase 3
-  // reclaims these once the lease expires.
-  const stale = await prisma.enrollment.count({
-    where: { state: 'RUNNING', lockedUntil: { lt: now } },
-  });
-
-  // Retention runs on this schedule rather than its own, because a daily
-  // deletion pass is exactly what a daily cron is good for — and Hobby allows
-  // only one cron job, so it has to share.
-  let purged = null;
+  // Retention shares this schedule because Hobby allows only one cron job, and
+  // a daily deletion pass is exactly what a daily cron is good for.
+  let purged;
   try {
     purged = await purgeExpiredData();
   } catch (error) {
@@ -72,11 +60,8 @@ export async function GET(request) {
 
   return NextResponse.json({
     ok: true,
-    executed: false,
-    reason: 'Step executor lands in phase 3',
-    due,
-    staleLeases: stale,
-    batchSize: BATCH_SIZE,
+    channels: 'dry-run',
+    scheduler,
     purged,
     at: now.toISOString(),
   });

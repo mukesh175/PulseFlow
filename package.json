@@ -13,6 +13,7 @@
     "db:deploy": "prisma migrate deploy",
     "db:studio": "prisma studio",
     "workflow:demo": "node --experimental-loader=./scripts/alias-loader.mjs scripts/run-workflow.mjs",
+    "scheduler:demo": "node --experimental-loader=./scripts/alias-loader.mjs scripts/run-scheduler.mjs",
     "shopify:deploy": "shopify app deploy",
     "shopify:link": "shopify app config link"
   },
