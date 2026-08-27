@@ -96,11 +96,32 @@ export default function PrivacyPage() {
       </LegalSection>
 
       <LegalSection title="How long we keep it">
+        <p>
+          A deletion pass runs daily and removes anything past the periods below. These are enforced in code, not
+          only stated here.
+        </p>
         <ul>
-          <li>Orders are mirrored from Shopify for as long as the app is installed.</li>
           <li>
-            Records of messages sent and discount codes issued are kept while the app is installed, so a merchant can
-            answer a customer asking why they received something.
+            <strong>Raw webhook payloads: 30 days</strong> (90 days if the delivery failed and is still being
+            diagnosed). These contain the most customer data and are the shortest-lived thing we hold.
+          </li>
+          <li>
+            <strong>Records of messages sent and discount codes issued: 12 months</strong>, so a merchant can answer
+            a customer asking why they received something.
+          </li>
+          <li>
+            <strong>Completed automations: 12 months</strong> after the customer entered them.
+          </li>
+          <li>
+            <strong>Mirrored orders: 24 months.</strong>
+          </li>
+          <li>
+            <strong>Access logs: 12 months.</strong>
+          </li>
+          <li>
+            <strong>Unsubscribe records are kept indefinitely</strong> and are the one exception. An unsubscribe is a
+            standing instruction, not stale data: deleting it as old would allow a later automation to email someone
+            who had asked us to stop. It is removed only when the person asks for their record itself to be erased.
           </li>
           <li>
             When the app is uninstalled, the access token is destroyed immediately, every automation is paused, and

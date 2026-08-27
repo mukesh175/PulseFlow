@@ -28,6 +28,8 @@ export default function LegalPage({ title, intro, children }) {
 
         <div className="d-flex gap-3 mt-3 sp-card-sub justify-content-center flex-wrap">
           <Link href="/privacy">Privacy policy</Link>
+          <Link href="/terms">Terms &amp; data processing</Link>
+          <Link href="/security">Security</Link>
         </div>
       </div>
     </main>

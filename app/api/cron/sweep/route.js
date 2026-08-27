@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { env } from '@/lib/env';
+import { purgeExpiredData } from '@/lib/retention';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -58,6 +59,17 @@ export async function GET(request) {
     where: { state: 'RUNNING', lockedUntil: { lt: now } },
   });
 
+  // Retention runs on this schedule rather than its own, because a daily
+  // deletion pass is exactly what a daily cron is good for — and Hobby allows
+  // only one cron job, so it has to share.
+  let purged = null;
+  try {
+    purged = await purgeExpiredData();
+  } catch (error) {
+    console.error('[pulseflow] retention purge failed', error);
+    purged = { error: error.message };
+  }
+
   return NextResponse.json({
     ok: true,
     executed: false,
@@ -65,6 +77,7 @@ export async function GET(request) {
     due,
     staleLeases: stale,
     batchSize: BATCH_SIZE,
+    purged,
     at: now.toISOString(),
   });
 }
