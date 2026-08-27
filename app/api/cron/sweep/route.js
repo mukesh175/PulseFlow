@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { env } from '@/lib/env';
 import { sweep, DEFAULT_BATCH_SIZE } from '@/lib/scheduler/sweep';
-import { createDryRunChannels } from '@/lib/channels';
+import { createChannels } from '@/lib/channels';
 import { purgeExpiredData } from '@/lib/retention';
 
 export const runtime = 'nodejs';
@@ -21,9 +21,11 @@ export const maxDuration = 60;
  * to the cron expression and nothing else: the lease columns are already in the
  * schema and no migration is involved.
  *
- * **Sends are still dry-run.** The real email and discount channels land in
- * phases 4 and 5. Until they exist, the safe implementation is the one wired
- * up here, so a scheduler that runs early cannot reach a real customer.
+ * **Email is live from phase 4; discounts are not.** A workflow whose steps
+ * need a channel that is not live yet is claimed, put back, and left due
+ * tomorrow rather than half-run — a real email carrying a `PF-DRYRUN-` code no
+ * store will honour is worse for the merchant than no email at all. The
+ * `channels` field in the response says which halves are live.
  */
 
 function authorize(request) {
@@ -38,7 +40,7 @@ export async function GET(request) {
   }
 
   const now = new Date();
-  const channels = createDryRunChannels();
+  const channels = createChannels();
 
   let scheduler;
   try {
@@ -60,7 +62,7 @@ export async function GET(request) {
 
   return NextResponse.json({
     ok: true,
-    channels: 'dry-run',
+    channels: channels.live,
     scheduler,
     purged,
     at: now.toISOString(),
